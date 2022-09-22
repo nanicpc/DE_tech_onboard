@@ -1,17 +1,33 @@
-use std::env::args;
-use std::ops::Add;
-use std::io::{self, prelude::*, BufReader};
+use std::cell::{RefCell};
+use std::rc::Rc;
+// use std::env::args;
+use std::ops::{Add, Deref};
 use std::fmt;
 use std::mem;
 
 struct Station {
     name: String,
-    neighbors: Vec<usize>
+    id: usize,
+    neighbors: Vec<Rc<RefCell<Station>>>
 }
 
 impl Station {
-    fn new(name: &str) -> Station{
-        Station {name: name.to_string(), neighbors: Vec::new()}
+    fn new(name: &str, id: usize) -> Station{
+        Station {name: name.to_string(), id: id, neighbors: Vec::new()}
+    }
+}
+
+impl fmt::Display for Station {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Station {} :{}", self.id, self.name)
+    }
+
+}
+
+impl Deref for Station{
+    type Target= usize;
+    fn deref(&self) -> &Self::Target {        
+        &self.id
     }
 }
 
@@ -29,8 +45,8 @@ struct Edge {
 }
 
 impl Edge{
-    fn new(from: usize, props: Transit, to: usize) -> Edge {
-        Edge {from, to, props}
+    fn new(from:usize, props: Transit, to:usize) -> Rc<RefCell<Edge>> {
+        Rc::new(RefCell::new(Edge {from, to, props}))
     }
 }
 
@@ -78,25 +94,27 @@ impl Add for Transit {
 
 #[derive(Default)]
 struct SummPath {
-    nodes: Vec<Station>,
-    edges: Vec<Edge>
+    nodes: Vec<Rc<RefCell<Station>>>,
+    edges: Vec<Rc<RefCell<Edge>>>
 }
 
 impl SummPath {
     fn add_node(&mut self, name: &str) -> usize {
         // under the hypothesis that stations cannot be removed
         let id = self.nodes.len();
-        self.nodes.push(Station::new(name));
+        let node = Rc::new(RefCell::new(Station::new(name, id)));
+        self.nodes.push(node.clone());
         id
     }
 
     fn add_edge(&mut self, from: usize, value: Transit, to: usize) {
-        self.edges.push(Edge::new(from, value, to));
-        self.nodes[from].neighbors.push(to);
-        self.nodes[to].neighbors.push(from);
+        let edge = Edge::new(from, value, to);
+        self.edges.push(edge.clone());
+        self.nodes[from].borrow_mut().neighbors.push(self.nodes[to].clone());
+        // to.neighbors.push(from);
     }
 
-    fn shortest_path(self, from: usize, to:usize) {
+   /*  fn shortest_path(self, from: usize, to:usize) {
         let mut neigh_paths:Vec<Vec<usize>> = Vec::new();
         let mut neighs = Vec::new();
         neighs.push(from);
@@ -113,7 +131,7 @@ impl SummPath {
             neighs 
         };
         println!("{:?}", find_neigh(from, to, neighs));
-    }
+    } */
 }
 
 fn main() {
@@ -168,7 +186,7 @@ fn time_works(){
 }
 
 #[test]
-fn mix_dont_work(){
+fn mix_eq_first(){
     let test1 = Transit::LineChange(String::from("A"));
     let test2 = Transit::Time(5);
     let su = test1.clone()+test2;
