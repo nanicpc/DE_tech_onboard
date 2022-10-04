@@ -3,7 +3,7 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 use std::error::Error;
 // use std::env::args;
-use std::ops::{Add, Deref};
+use std::ops::Deref;
 use std::fmt;
 use std::mem;
 
@@ -48,6 +48,26 @@ impl Transit {
             Transit::LineChange(s)  => format!("=> Line: {}", s),
         }   
     }
+
+    fn merge(self, rhs: &Self) -> Self {
+        if mem::discriminant(&self)==mem::discriminant(rhs){
+            match (self, rhs) {
+                (Transit::Optcost(co), Transit::Optcost(sec)) => {
+                    Transit::Optcost(co+sec)},
+                (Transit::Time(t), Transit::Time(sec)) => {
+                    Transit::Time(t+sec)},
+                (Transit::LineChange(s), Transit::LineChange(sec)) => {
+                    let mut tempstr = s.clone();
+                    tempstr.push_str(" -> ");
+                    tempstr.push_str(sec);                  
+                    Transit::LineChange(tempstr)
+                },
+                _ => unreachable!()
+            }    
+        } else {
+            self
+        }
+    }
 }
 
 struct Edge {
@@ -73,45 +93,13 @@ impl fmt::Display for Transit {
 
 }
 
-impl Add for Transit {
-    type Output = Self;
-    fn add(self, rhs: Self) -> Self::Output {
-        if mem::discriminant(&self)==mem::discriminant(&rhs){
-            match self {
-                Transit::Optcost(co) => {
-                    let mut new_val = co;
-                    if let Transit::Optcost(sec) = rhs{
-                        new_val += sec;
-                    }
-                    Transit::Optcost(new_val)},
-                Transit::Time(t) => {
-                    let mut new_val = t;
-                    if let Transit::Time(sec) = rhs{
-                        new_val += sec;
-                    }
-                    Transit::Time(new_val)},
-                Transit::LineChange(s) => {
-                    let mut tempstr = s.clone();
-                    if let Transit::LineChange(sec) = rhs{
-                        tempstr.push_str(" -> ");
-                        tempstr.push_str(&sec);
-                    }                    
-                    Transit::LineChange(tempstr)
-                },
-            }    
-        } else {
-            self
-        }
-    }
-}
-
 #[derive(Default)]
-struct SummPath {
+struct MetroGraph {
     nodes: Vec<Rc<RefCell<Station>>>,
     edges: Vec<Rc<RefCell<Edge>>>
 }
 
-impl SummPath {
+impl MetroGraph {
     fn add_node(&mut self, name: &str) -> usize {
         // under the hypothesis that stations cannot be removed
         let id = self.nodes.len();
@@ -147,7 +135,7 @@ impl SummPath {
         bfs_queue.push_back((from,vec![from]));
         let mut already_seen:Vec<usize> = Vec::new();
         while !bfs_queue.is_empty(){
-            let (mut current_vertex, mut path) = bfs_queue.pop_front().unwrap();
+            let (current_vertex, path) = bfs_queue.pop_front().unwrap();
             already_seen.push(current_vertex);
             for neighbor in self.nodes[current_vertex].borrow().neighbors.iter(){
                 let n_id = self.get_node_id(&neighbor.borrow().name);
@@ -181,13 +169,13 @@ impl SummPath {
             let edge_vector = self.get_edges_from_path(path);
             let mut curr_transit=edge_vector[0].borrow().props.clone();
             for i in 1..edge_vector.len(){
-                let edge2 = edge_vector[i].borrow().props.clone();
+                let edge2 = &edge_vector[i].borrow().props;
                 let str1 = curr_transit.get_str_value();
-                let s= curr_transit+edge2.clone();
+                let s= curr_transit.merge(edge2);
                 let str_new = s.get_str_value();
                 if str_new == str1{
                     curr_str.push(str1);
-                    curr_transit = edge2;
+                    curr_transit = edge2.clone();
                 } else{
                     curr_transit = s;
                 }                
@@ -202,7 +190,7 @@ impl SummPath {
 }
 
 fn main() {
-    let mut graph = SummPath::default();
+    let mut graph = MetroGraph::default();
     let a = graph.add_node("a");
     let b = graph.add_node("b");
     let c = graph.add_node("c");
@@ -241,7 +229,7 @@ fn main() {
 fn string_works(){
     let test1 = Transit::LineChange(String::from("A"));
     let test2 = Transit::LineChange(String::from("B"));
-    let su = test1.clone()+test2;
+    let su = test1.merge(&test2);
     assert_eq!(su, Transit::LineChange(String::from("A -> B")));
 }
 
@@ -249,7 +237,7 @@ fn string_works(){
 fn cost_works(){
     let test1 = Transit::Optcost(3.2);
     let test2 = Transit::Optcost(1.2);
-    let su = test1+test2;
+    let su = test1.merge(&test2);
     assert_eq!(su, Transit::Optcost(4.4));
 }
 
@@ -257,7 +245,7 @@ fn cost_works(){
 fn time_works(){
     let test1 = Transit::Time(5);
     let test2 = Transit::Time(4);
-    let su = test1+test2;
+    let su = test1.merge(&test2);
     assert_eq!(su, Transit::Time(9));
 }
 
@@ -265,13 +253,13 @@ fn time_works(){
 fn mix_eq_first(){
     let test1 = Transit::LineChange(String::from("A"));
     let test2 = Transit::Time(5);
-    let su = test1.clone()+test2;
+    let su = test1.clone().merge(&test2);
     assert_eq!(su, test1);
 }
 
 #[test]
 fn find_node_id_ok(){
-    let mut graph = SummPath::default();
+    let mut graph = MetroGraph::default();
     let a = graph.add_node("a");
     let b = graph.add_node("b");
     assert_eq!(a, graph.get_node_id("a"));
@@ -281,7 +269,7 @@ fn find_node_id_ok(){
 #[test]
 #[should_panic]
 fn find_node_id_ko(){
-    let mut graph = SummPath::default();
+    let mut graph = MetroGraph::default();
     let _a = graph.add_node("a");
     graph.get_node_id("c");
 }
