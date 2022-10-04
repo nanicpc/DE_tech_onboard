@@ -1,5 +1,7 @@
 use std::cell::{RefCell};
+use std::collections::VecDeque;
 use std::rc::Rc;
+use std::error::Error;
 // use std::env::args;
 use std::ops::{Add, Deref};
 use std::fmt;
@@ -38,6 +40,16 @@ pub enum Transit {
    LineChange(String),
 }
 
+impl Transit {
+    fn get_str_value(&self) -> String{
+        match &*self {
+            Transit::Optcost(co) => format!("=> {} €", co),
+            Transit::Time(t)  => format!("=> {} minutes", t),
+            Transit::LineChange(s)  => format!("=> Line: {}", s),
+        }   
+    }
+}
+
 struct Edge {
     from: usize,
     to: usize,
@@ -60,6 +72,7 @@ impl fmt::Display for Transit {
     }
 
 }
+
 impl Add for Transit {
     type Output = Self;
     fn add(self, rhs: Self) -> Self::Output {
@@ -114,24 +127,78 @@ impl SummPath {
         // to.neighbors.push(from);
     }
 
-   /*  fn shortest_path(self, from: usize, to:usize) {
-        let mut neigh_paths:Vec<Vec<usize>> = Vec::new();
-        let mut neighs = Vec::new();
-        neighs.push(from);
-        fn find_neigh (curr_neigh: Vec<usize>, goal: usize, &neighs: Vec<usize>) -> Vec<usize>{
-            let mut chaine = neighs.clone();
-            for n in curr_neigh{
-                chaine.push(n);
-                if n != goal {
-                    find_neigh(n, goal, &chaine);
-                } else {
-                    break;
+    fn get_node_id(&self, name: &str) -> usize{
+        let id = self.nodes.iter().position(|station| station.borrow().name == name.to_string()).unwrap();
+        id
+    }
+
+    fn get_edge(&self, from:usize, to: usize) ->Option<&Rc<RefCell<Edge>>>{
+        let current= self.edges.iter().find(|&edge| (edge.borrow().from==from)&&(edge.borrow().to==to));
+        current
+    }
+
+    fn find_all_paths(&self, from: &str, to: &str) -> Result<Vec<Vec<usize>>, Box<dyn Error>>{
+        println!("looking for the shortest path from \"{}\" to \"{}\"", from, to);
+        let from = self.get_node_id(from);
+        let to= self.get_node_id(to);
+        println!("nodes {} to {}", from, to);
+        let mut all_paths:Vec<Vec<usize>>=Vec::new();
+        let mut bfs_queue:VecDeque<(usize,Vec<usize>)> = VecDeque::new();
+        bfs_queue.push_back((from,vec![from]));
+        let mut already_seen:Vec<usize> = Vec::new();
+        while !bfs_queue.is_empty(){
+            let (mut current_vertex, mut path) = bfs_queue.pop_front().unwrap();
+            already_seen.push(current_vertex);
+            for neighbor in self.nodes[current_vertex].borrow().neighbors.iter(){
+                let n_id = self.get_node_id(&neighbor.borrow().name);
+                if !already_seen.contains(&n_id){
+                    let mut new_path = path.clone();
+                    new_path.extend(vec![n_id]);
+                    if n_id == to{                        
+                        all_paths.push(new_path);
+                    } else{
+                        bfs_queue.push_back((n_id, new_path));
+                    }
                 }
             }
-            neighs 
-        };
-        println!("{:?}", find_neigh(from, to, neighs));
-    } */
+        }
+        return Ok(all_paths)
+    }
+
+    fn get_edges_from_path(&self, path: &Vec<usize>)->Vec<&Rc<RefCell<Edge>>>{
+        let mut edge_vector:Vec<&Rc<RefCell<Edge>>> = Vec::new();
+        for i in 1..path.len(){
+            if let Some(x) = self.get_edge(path[i-1], path[i]){
+                edge_vector.push(x);
+            }
+        }        
+        edge_vector
+    }
+
+    fn print_paths(&self, all_paths:Vec<Vec<usize>>){
+        for path in all_paths.iter(){
+            let mut curr_str = Vec::new();
+            let edge_vector = self.get_edges_from_path(path);
+            let mut curr_transit=edge_vector[0].borrow().props.clone();
+            for i in 1..edge_vector.len(){
+                let edge2 = edge_vector[i].borrow().props.clone();
+                let str1 = curr_transit.get_str_value();
+                let s= curr_transit+edge2.clone();
+                let str_new = s.get_str_value();
+                if str_new == str1{
+                    curr_str.push(str1);
+                    curr_transit = edge2;
+                } else{
+                    curr_transit = s;
+                }                
+            }
+            let jic = curr_transit.get_str_value();
+            if jic != curr_str[curr_str.len()-1]{
+                curr_str.push(jic);
+            }
+            println!("{}", curr_str.join(" "));
+        }
+    }
 }
 
 fn main() {
@@ -146,6 +213,9 @@ fn main() {
     let h = graph.add_node("h");
     let i = graph.add_node("i");
     let j = graph.add_node("j");
+    let k = graph.add_node("k");
+    let l = graph.add_node("l");
+    let m = graph.add_node("m");
 
     graph.add_edge(a, Transit::LineChange(String::from("A")), b);
     graph.add_edge(a, Transit::LineChange(String::from("C")), c);
@@ -158,6 +228,12 @@ fn main() {
     graph.add_edge(g, Transit::Time(4), i);
     graph.add_edge(e, Transit::Time(3), j);
     graph.add_edge(h, Transit::Optcost(1.5), j);
+    graph.add_edge(j, Transit::LineChange(String::from("E")), k);
+    graph.add_edge(j, Transit::LineChange(String::from("F")), l);
+    graph.add_edge(k, Transit::Time(3), m);
+    graph.add_edge(l, Transit::Time(5), m);
+    let routes = graph.find_all_paths("a", "m").unwrap();
+    graph.print_paths(routes);
 }
 
 
@@ -191,4 +267,21 @@ fn mix_eq_first(){
     let test2 = Transit::Time(5);
     let su = test1.clone()+test2;
     assert_eq!(su, test1);
+}
+
+#[test]
+fn find_node_id_ok(){
+    let mut graph = SummPath::default();
+    let a = graph.add_node("a");
+    let b = graph.add_node("b");
+    assert_eq!(a, graph.get_node_id("a"));
+    assert_eq!(b, graph.get_node_id("b"));
+}
+
+#[test]
+#[should_panic]
+fn find_node_id_ko(){
+    let mut graph = SummPath::default();
+    let _a = graph.add_node("a");
+    graph.get_node_id("c");
 }
