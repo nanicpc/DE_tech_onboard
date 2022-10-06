@@ -70,6 +70,16 @@ impl Transit {
     }
 }
 
+impl fmt::Display for Transit {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match &*self {
+            Transit::Optcost(co) => write!(f, "{}", co),
+            Transit::Time(t) => write!(f, "{}", t),
+            Transit::LineChange(s) => write!(f, "{}", s),
+        }        
+    }
+
+}
 struct Edge {
     from: usize,
     to: usize,
@@ -80,17 +90,6 @@ impl Edge{
     fn new(from:usize, props: Transit, to:usize) -> Rc<RefCell<Edge>> {
         Rc::new(RefCell::new(Edge {from, to, props}))
     }
-}
-
-impl fmt::Display for Transit {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match &*self {
-            Transit::Optcost(co) => write!(f, "{}", co),
-            Transit::Time(t) => write!(f, "{}", t),
-            Transit::LineChange(s) => write!(f, "{}", s),
-        }        
-    }
-
 }
 
 #[derive(Default)]
